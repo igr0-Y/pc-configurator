@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Конфигуратор ПК</title>
+<style>
+  body { font-family: sans-serif; max-width: 700px; margin: 40px auto; background: #f7f8fa; padding: 0 16px; }
+  .component-row {
+    background: white; border: 1px solid #e5e5e5; border-radius: 10px; padding: 14px;
+    margin-bottom: 10px; display: flex; gap: 12px; align-items: center; cursor: pointer;
+  }
+  .component-row:hover { border-color: #3b5bdb; }
+  .component-icon { width: 48px; height: 48px; object-fit: contain; flex-shrink: 0; background: #f5f6fa; border-radius: 8px; padding: 4px; }
+  .component-main { flex: 1; }
+  .component-label { font-size: 12px; color: #888; }
+  .component-name { font-weight: 600; font-size: 14px; }
+  .badge { font-size: 12px; margin-top: 6px; padding: 4px 8px; border-radius: 6px; display: inline-block; margin-right: 4px; }
+  .installed-item { display: flex; justify-content: space-between; align-items: center; background: #f0f4ff; padding: 6px 10px; border-radius: 6px; font-size: 13px; margin-top: 6px; }
+  .installed-item button { background: none; border: none; color: #e03131; cursor: pointer; font-size: 14px; }
+  .verdict-box { background: #fff9e6; border: 1px solid #f0d060; border-radius: 10px; padding: 16px; margin-top: 20px; line-height: 1.6; white-space: pre-line; }
+
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000; }
+  .modal-overlay.open { display: flex; }
+  .modal-box { background: white; border-radius: 12px; width: 90%; max-width: 600px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; }
+  .modal-header { padding: 16px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+  .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #888; }
+  .modal-filters { padding: 12px 16px; border-bottom: 1px solid #eee; font-size: 13px; }
+  .modal-filters label { margin-right: 14px; cursor: pointer; }
+  .modal-filters > div { margin-bottom: 8px; }
+  .modal-filters input[type="number"] { width: 55px; padding: 3px 5px; }
+  .modal-list { overflow-y: auto; padding: 8px; }
+  .catalog-item { display: flex; gap: 12px; align-items: flex-start; padding: 10px; border-radius: 8px; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+  .catalog-item:hover { background: #f5f6fa; }
+  .catalog-icon { width: 56px; height: 56px; object-fit: contain; background: #f5f6fa; border-radius: 8px; padding: 4px; flex-shrink: 0; }
+  .catalog-specs { font-size: 12px; color: #666; margin-top: 6px; line-height: 1.6; }
+  .catalog-specs b { color: #333; }
+</style>
+</head>
+<body>
+
+<h1>🖥️ Конфигуратор ПК</h1>
+<div id="components"></div>
+
+<div class="component-row" onclick="openCatalog('ram')">
+  <img class="component-icon" id="icon-ram" src="" style="display:none">
+  <div class="component-main">
+    <div class="component-label">Оперативная память</div>
+    <div class="component-name" id="name-ram">Нажми, чтобы выбрать</div>
+    <div id="ram-installed"></div>
+    <div id="badge-ram"></div>
+  </div>
+</div>
+
+<div class="component-row" onclick="openCatalog('storage')">
+  <img class="component-icon" id="icon-storage" src="" style="display:none">
+  <div class="component-main">
+    <div class="component-label">Накопители</div>
+    <div class="component-name" id="name-storage">Нажми, чтобы выбрать</div>
+    <div id="storage-installed"></div>
+  </div>
+</div>
+
+<div class="verdict-box" id="verdict">Заполни сборку полностью, чтобы увидеть заключение</div>
+
+<div class="modal-overlay" id="modal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <b id="modal-title">Выбор компонента</b>
+      <button class="modal-close" onclick="closeCatalog()">✕</button>
+    </div>
+    <div class="modal-filters" id="modal-filters"></div>
+    <div class="modal-list" id="modal-list"></div>
+  </div>
+</div>
+
+<script>
+const API = "http://127.0.0.1:8000";
+const COMPONENTS = [
+  { key: "cpu_id", endpoint: "/cpu", label: "Процессор" },
+  { key: "motherboard_id", endpoint: "/motherboard", label: "Материнская плата" },
+  { key: "gpu_id", endpoint: "/gpu", label: "Видеокарта" },
+  { key: "psu_id", endpoint: "/psu", label: "Блок питания" },
+  { key: "cooler_id", endpoint: "/cooler", label: "Охлаждение" },
+  { key: "case_chassis_id", endpoint: "/case_chassis", label: "Корпус" },
+];
+
+const KEY_TO_COMPONENT = {
+  cpu_socket_vs_motherboard: "cpu_id", motherboard_socket_vs_cpu: "motherboard_id",
+  cpu_socket_vs_cooler: "cpu_id", cooler_socket_vs_cpu: "cooler_id",
+  cpu_cooling_check: "cpu_id", cooler_cooling_check: "cooler_id",
+  gpu_case_check: "gpu_id", case_gpu_check: "case_chassis_id",
+  psu_compatibility: "psu_id",
+  motherboard_case_check: "motherboard_id", case_motherboard_check: "case_chassis_id",
+  ram_type_check: "ram", motherboard_ram_check: "motherboard_id",
+  ram_slots: "ram", storage_slots: "storage",
+  cpu_integrated_graphics_check: "cpu_id",
+};
+
+const FIELD_LABELS = {
+  socket: "Сокет", power_consumption: "Потребление", cores: "Ядра", threads: "Потоки",
+  vram_gb: "VRAM", length_mm: "Длина", suggested_psu: "Реком. БП",
+  ram_type: "Тип памяти", capacity_gb: "Объём", speed_mhz: "Частота", cas_latency: "CL",
+  max_ram_speed: "Макс. частота RAM", form_factor: "Форм-фактор", ram_slots: "Слоты RAM",
+  m2_slots: "Слоты M.2", sata_slots: "Слоты SATA",
+  wattage: "Мощность", certification: "Сертификация", modularity: "Модульность",
+  compatible_sockets: "Совместимые сокеты", max_tdp: "Макс. TDP",
+  max_gpu_length_mm: "Макс. длина GPU", type: "Тип", interface: "Интерфейс",
+  read_speed_mbps: "Скорость чтения", has_integrated_graphics: "Встроенная графика"
+};
+
+let currentBuildId = null;
+let allData = {};
+let installedRam = [], installedStorage = [];
+let currentModalKey = null;
+
+async function createBuild() {
+  const res = await fetch(`${API}/`, { method: "POST" });
+  const data = await res.json();
+  currentBuildId = data.id;
+}
+
+function renderComponents() {
+  const container = document.getElementById("components");
+  container.innerHTML = COMPONENTS.map(c => `
+    <div class="component-row" onclick="openCatalog('${c.key}')">
+      <img class="component-icon" id="icon-${c.key}" src="" style="display:none">
+      <div class="component-main">
+        <div class="component-label">${c.label}</div>
+        <div class="component-name" id="name-${c.key}">Нажми, чтобы выбрать</div>
+        <div id="badge-${c.key}"></div>
+      </div>
+    </div>
+  `).join("");
+}
+
+async function loadAllData() {
+  for (const c of COMPONENTS) {
+    const res = await fetch(`${API}${c.endpoint}`);
+    allData[c.key] = await res.json();
+  }
+  const ramRes = await fetch(`${API}/ram`);
+  allData["ram"] = await ramRes.json();
+  const storageRes = await fetch(`${API}/storage`);
+  allData["storage"] = await storageRes.json();
+}
+
+function specsPreview(item) {
+  const skip = ["id", "name", "icon_path", "benchmark_score"];
+  return Object.entries(item).filter(([k]) => !skip.includes(k))
+    .map(([k, v]) => {
+      let displayValue = v;
+      if (k === "has_integrated_graphics") displayValue = v ? "Есть" : "Нет";
+      if (k === "modularity") displayValue = v === "Full" ? "Модульный" : v === "Semi" ? "Полумодульный" : "Немодульный";
+      return `<div><b>${FIELD_LABELS[k] || k}:</b> ${displayValue}</div>`;
+    })
+    .join("");
+}
+
+function renderCatalogItems(items) {
+  document.getElementById("modal-list").innerHTML = items.map(item => `
+    <div class="catalog-item" onclick="selectItem('${currentModalKey}', ${item.id})">
+      <img class="catalog-icon" src="${item.icon_path ? API + item.icon_path : ''}" onerror="this.style.display='none'">
+      <div>
+        <div style="font-weight:600;font-size:14px;">${item.name}</div>
+        <div class="catalog-specs">${specsPreview(item)}</div>
+      </div>
+    </div>
+  `).join("");
+}
+
+function openCatalog(key) {
+  currentModalKey = key;
+  const label = key === "ram" ? "Оперативная память" : key === "storage" ? "Накопители" : COMPONENTS.find(c => c.key === key)?.label;
+  document.getElementById("modal-title").textContent = `Выбери: ${label}`;
+
+  const filterBox = document.getElementById("modal-filters");
+  if (key === "cpu_id") {
+    filterBox.innerHTML = `
+      <div>
+        <label><input type="checkbox" value="AM5" onchange="applyCpuFilter()"> AM5</label>
+        <label><input type="checkbox" value="AM4" onchange="applyCpuFilter()"> AM4</label>
+        <label><input type="checkbox" value="LGA1700" onchange="applyCpuFilter()"> LGA1700</label>
+        <label><input type="checkbox" value="LGA1851" onchange="applyCpuFilter()"> LGA1851</label>
+      </div>
+      <div>
+        Ядра: от <input type="number" id="min-cores" onchange="applyCpuFilter()">
+        до <input type="number" id="max-cores" onchange="applyCpuFilter()">
+      </div>
+      <div>
+        Потоки: от <input type="number" id="min-threads" onchange="applyCpuFilter()">
+        до <input type="number" id="max-threads" onchange="applyCpuFilter()">
+      </div>
+      <div>
+        <label><input type="checkbox" id="igpu-filter" onchange="applyCpuFilter()"> Без встроенной графики</label>
+      </div>
+    `;
+  } else {
+    filterBox.innerHTML = "";
+  }
+
+  renderCatalogItems(allData[key] || []);
+  document.getElementById("modal").classList.add("open");
+}
+
+function closeCatalog() {
+  document.getElementById("modal").classList.remove("open");
+}
+
+async function applyCpuFilter() {
+  const checked = [...document.querySelectorAll('#modal-filters input[type=checkbox]:not(#igpu-filter):checked')].map(cb => cb.value);
+  const minCores = document.getElementById("min-cores")?.value;
+  const maxCores = document.getElementById("max-cores")?.value;
+  const minThreads = document.getElementById("min-threads")?.value;
+  const maxThreads = document.getElementById("max-threads")?.value;
+  const noIGPU = document.getElementById("igpu-filter")?.checked;
+
+  let params = [];
+  checked.forEach(s => params.push(`socket=${s}`));
+  if (minCores) params.push(`min_cores=${minCores}`);
+  if (maxCores) params.push(`max_cores=${maxCores}`);
+  if (minThreads) params.push(`min_threads=${minThreads}`);
+  if (maxThreads) params.push(`max_threads=${maxThreads}`);
+  if (noIGPU) params.push(`has_integrated_graphics=false`);
+
+  let url = `${API}/cpu`;
+  if (params.length > 0) url += "?" + params.join("&");
+
+  const res = await fetch(url);
+  const items = await res.json();
+  renderCatalogItems(items);
+}
+
+async function selectItem(key, itemId) {
+  const item = allData[key].find(i => i.id === itemId) || (await (await fetch(`${API}/cpu`)).json()).find(i => i.id === itemId);
+  if (key === "ram") {
+    await addRam(item);
+  } else if (key === "storage") {
+    await addStorage(item);
+  } else {
+    document.getElementById(`name-${key}`).textContent = item.name;
+    renderIcon(`icon-${key}`, item.icon_path);
+    await refreshBuild({ [key]: itemId });
+  }
+  closeCatalog();
+}
+
+function renderIcon(iconElId, iconPath) {
+  const img = document.getElementById(iconElId);
+  if (!img) return;
+  if (iconPath) { img.src = `${API}${iconPath}`; img.style.display = "block"; }
+}
+
+function renderInstalledRam() {
+  document.getElementById("ram-installed").innerHTML = installedRam.map(item => `
+    <div class="installed-item">
+      <span>${item.name} × ${item.quantity}</span>
+      <button onclick="event.stopPropagation(); removeRam(${item.buildRamId})">✕</button>
+    </div>
+  `).join("");
+}
+
+function renderInstalledStorage() {
+  document.getElementById("storage-installed").innerHTML = installedStorage.map(item => `
+    <div class="installed-item">
+      <span>${item.name}</span>
+      <button onclick="event.stopPropagation(); removeStorage(${item.buildStorageId})">✕</button>
+    </div>
+  `).join("");
+}
+
+function renderBadges(hardChecks) {
+  COMPONENTS.forEach(c => { const el = document.getElementById(`badge-${c.key}`); if (el) el.innerHTML = ""; });
+  const ramBadge = document.getElementById("badge-ram");
+  if (ramBadge) ramBadge.innerHTML = "";
+
+  for (const [key, value] of Object.entries(hardChecks)) {
+    const compKey = KEY_TO_COMPONENT[key];
+    let el = compKey === "ram" ? document.getElementById("badge-ram")
+      : compKey === "storage" ? null
+      : document.getElementById(`badge-${compKey}`);
+    if (el) {
+      const isGreen = value.includes("🟢");
+      el.innerHTML += `<span class="badge" style="background:${isGreen ? '#e6f7e6' : '#ffe6e6'}">${value}</span>`;
+    }
+  }
+}
+
+async function refreshBuild(extraBody = {}) {
+  const res = await fetch(`${API}/${currentBuildId}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(extraBody)
+  });
+  const data = await res.json();
+  renderBadges(data.hard_checks || {});
+  document.getElementById("verdict").textContent = data.verdict || "Заполни сборку полностью, чтобы увидеть заключение";
+}
+
+async function addRam(item) {
+  const res = await fetch(`${API}/${currentBuildId}/add-ram`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ram_id: item.id, quantity: 1 })
+  });
+  const data = await res.json();
+  installedRam.push({ name: item.name, quantity: 1, buildRamId: data.build_ram_id });
+  renderInstalledRam();
+  renderIcon("icon-ram", item.icon_path);
+  document.getElementById("name-ram").textContent = item.name;
+  await refreshBuild();
+}
+
+async function removeRam(buildRamId) {
+  await fetch(`${API}/${currentBuildId}/remove-ram/${buildRamId}`, { method: "DELETE" });
+  installedRam = installedRam.filter(i => i.buildRamId !== buildRamId);
+  renderInstalledRam();
+  await refreshBuild();
+}
+
+async function addStorage(item) {
+  const res = await fetch(`${API}/${currentBuildId}/add-storage`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ storage_id: item.id })
+  });
+  const data = await res.json();
+  installedStorage.push({ name: item.name, buildStorageId: data.build_storage_id });
+  renderInstalledStorage();
+  renderIcon("icon-storage", item.icon_path);
+  document.getElementById("name-storage").textContent = item.name;
+  await refreshBuild();
+}
+
+async function removeStorage(buildStorageId) {
+  await fetch(`${API}/${currentBuildId}/remove-storage/${buildStorageId}`, { method: "DELETE" });
+  installedStorage = installedStorage.filter(i => i.buildStorageId !== buildStorageId);
+  renderInstalledStorage();
+  await refreshBuild();
+}
+
+document.getElementById("modal").addEventListener("click", (e) => {
+  if (e.target.id === "modal") closeCatalog();
+});
+
+(async () => {
+  await createBuild();
+  renderComponents();
+  await loadAllData();
+})();
+</script>
+
+</body>
+</html>
