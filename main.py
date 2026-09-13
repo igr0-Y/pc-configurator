@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from database import get_db
 from models import CPU, GPU, RAM, Motherboard, PSU, Cooler, Case, Storage, Build, BuildRAM, BuildStorage, CoolerSocket
 from schemas import BuildUpdate, RAMAdd, StorageAdd
@@ -9,6 +10,10 @@ from sqlalchemy.orm import Session
 
 
 app = FastAPI()
+
+@app.get("/", include_in_schema=False)
+def read_frontend():
+    return FileResponse("pcconfigurator_html.html")
 
 app.add_middleware(
     CORSMiddleware,
