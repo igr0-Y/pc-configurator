@@ -363,10 +363,17 @@ async function loadBuilds() {
   renderBuildSelect();
 }
 
+// Номер, который видит пользователь: порядок его сборок по времени создания (1, 2, 3...).
+// Настоящий номер в базе (id) у всех посетителей общий, поэтому он скрыт.
+function buildNumber(id) {
+  const index = builds.findIndex(b => b.id === id);
+  return builds.length - index;
+}
+
 function renderBuildSelect() {
   const select = document.getElementById("build-select");
   select.innerHTML = builds.map(b =>
-    `<option value="${b.id}" ${b.id === currentBuildId ? "selected" : ""}>Сборка №${b.id}${b.name_build ? " — " + b.name_build : ""}</option>`
+    `<option value="${b.id}" ${b.id === currentBuildId ? "selected" : ""}>Сборка №${buildNumber(b.id)}${b.name_build ? " — " + b.name_build : ""}</option>`
   ).join("");
 }
 
@@ -455,7 +462,7 @@ async function newBuild() {
 }
 
 async function removeBuild() {
-  if (!confirm(`Удалить сборку №${currentBuildId}?`)) return;
+  if (!confirm(`Удалить сборку №${buildNumber(currentBuildId)}?`)) return;
   await fetch(`${API}/${currentBuildId}`, { method: "DELETE" });
   localStorage.removeItem("lastBuildId");
   await loadBuilds();
