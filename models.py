@@ -10,7 +10,6 @@ class ComponentBase(Base):
     name = Column(String)
     icon_path = Column(String)
     price = Column(Integer)
-    session_id = Column(String, index=True)
 
 
 class CPU(ComponentBase):
