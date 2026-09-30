@@ -9,6 +9,8 @@ class ComponentBase(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String)
     icon_path = Column(String)
+    price = Column(Integer)
+    session_id = Column(String, index=True)
 
 
 class CPU(ComponentBase):
@@ -80,6 +82,7 @@ class Build(Base):
     __tablename__ = "build"
     id = Column(Integer, primary_key=True)
     name_build = Column(String)
+    session_id = Column(String, index=True)
     cpu_id = Column(Integer, ForeignKey("cpu.id"))
     motherboard_id = Column(Integer, ForeignKey("motherboard.id"))
     gpu_id = Column(Integer, ForeignKey("gpu.id"))

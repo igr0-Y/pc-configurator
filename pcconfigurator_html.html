@@ -34,6 +34,13 @@
   .catalog-icon { width: 56px; height: 56px; object-fit: contain; background: #f5f6fa; border-radius: 8px; padding: 4px; flex-shrink: 0; }
   .catalog-specs { font-size: 12px; color: #666; margin-top: 6px; line-height: 1.6; }
   .catalog-specs b { color: #333; }
+
+  .builds-bar { display: flex; gap: 8px; max-width: 700px; margin: 16px auto; }
+  .builds-bar select { flex: 1; padding: 9px 10px; border: 1px solid #e5e5e5; border-radius: 8px; background: white; font-size: 14px; }
+  .builds-bar button { padding: 9px 14px; border: 1px solid #e5e5e5; border-radius: 8px; background: white; font-size: 14px; cursor: pointer; }
+  .builds-bar button:hover { border-color: #3b5bdb; }
+  .builds-bar .danger { color: #e03131; }
+  .builds-bar .danger:hover { border-color: #e03131; }
 </style>
 </head>
 <body>
@@ -46,6 +53,12 @@
     GitHub
   </a>
 </div>
+<div class="builds-bar">
+  <select id="build-select" onchange="switchBuild(this.value)"></select>
+  <button onclick="newBuild()">+ Новая сборка</button>
+  <button class="danger" onclick="removeBuild()">Удалить</button>
+</div>
+
 <div id="components"></div>
 
 <div class="component-row" onclick="openCatalog('ram')">
@@ -81,7 +94,8 @@
 </div>
 
 <script>
-const API = "http://195.133.67.40:8000";
+// Страницу отдаёт тот же сервер, поэтому адрес пустой. Если открыть файл двойным щелчком, идём на локальный сервер.
+const API = location.protocol === "file:" ? "http://127.0.0.1:8000" : "";
 const COMPONENTS = [
   { key: "cpu_id", endpoint: "/cpu", label: "Процессор" },
   { key: "motherboard_id", endpoint: "/motherboard", label: "Материнская плата" },
@@ -327,7 +341,7 @@ async function addStorage(item) {
     body: JSON.stringify({ storage_id: item.id })
   });
   const data = await res.json();
-  installedStorage.push({ name: item.name, buildStorageId: data.build_storage_id });
+  installedStorage.push({ name: item.name, buildStorageId: data.build_storage_id ?? data.new_storage });
   renderInstalledStorage();
   renderIcon("icon-storage", item.icon_path);
   document.getElementById("name-storage").textContent = item.name;
@@ -341,14 +355,129 @@ async function removeStorage(buildStorageId) {
   await refreshBuild();
 }
 
+let builds = [];
+
+async function loadBuilds() {
+  const res = await fetch(`${API}/builds`);
+  builds = await res.json();
+  renderBuildSelect();
+}
+
+function renderBuildSelect() {
+  const select = document.getElementById("build-select");
+  select.innerHTML = builds.map(b =>
+    `<option value="${b.id}" ${b.id === currentBuildId ? "selected" : ""}>Сборка №${b.id}${b.name_build ? " — " + b.name_build : ""}</option>`
+  ).join("");
+}
+
+function resetForm() {
+  COMPONENTS.forEach(c => {
+    document.getElementById(`name-${c.key}`).textContent = "Нажми, чтобы выбрать";
+    const icon = document.getElementById(`icon-${c.key}`);
+    icon.style.display = "none";
+    icon.src = "";
+    document.getElementById(`badge-${c.key}`).innerHTML = "";
+  });
+  for (const key of ["ram", "storage"]) {
+    document.getElementById(`name-${key}`).textContent = "Нажми, чтобы выбрать";
+    const icon = document.getElementById(`icon-${key}`);
+    icon.style.display = "none";
+    icon.src = "";
+  }
+  document.getElementById("badge-ram").innerHTML = "";
+  installedRam = [];
+  installedStorage = [];
+  renderInstalledRam();
+  renderInstalledStorage();
+  document.getElementById("verdict").textContent = "Заполни сборку полностью, чтобы увидеть заключение";
+}
+
+function findItem(key, id) {
+  return (allData[key] || []).find(i => i.id === id);
+}
+
+async function openBuild(id, retry = true) {
+  currentBuildId = id;
+  localStorage.setItem("lastBuildId", id);
+  renderBuildSelect();
+  resetForm();
+
+  const res = await fetch(`${API}/${id}`);
+  const data = await res.json();
+  if (data.id === undefined) {            // сборки уже нет: начинаем заново
+    localStorage.removeItem("lastBuildId");
+    if (retry) return start();
+    return;
+  }
+
+  COMPONENTS.forEach(c => {
+    const item = data[c.key] != null ? findItem(c.key, data[c.key]) : null;
+    if (item) {
+      document.getElementById(`name-${c.key}`).textContent = item.name;
+      renderIcon(`icon-${c.key}`, item.icon_path);
+    }
+  });
+
+  installedRam = (data.rams || []).map(r => ({ name: r.name, quantity: r.quantity, buildRamId: r.build_ram_id }));
+  installedStorage = (data.storages || []).map(s => ({ name: s.name, buildStorageId: s.build_storage_id }));
+  renderInstalledRam();
+  renderInstalledStorage();
+
+  const lastRam = (data.rams || []).slice(-1)[0];
+  if (lastRam) {
+    document.getElementById("name-ram").textContent = lastRam.name;
+    renderIcon("icon-ram", findItem("ram", lastRam.ram_id)?.icon_path);
+  }
+  const lastStorage = (data.storages || []).slice(-1)[0];
+  if (lastStorage) {
+    document.getElementById("name-storage").textContent = lastStorage.name;
+    renderIcon("icon-storage", findItem("storage", lastStorage.storage_id)?.icon_path);
+  }
+
+  await refreshBuild();                   // бейджи совместимости и вердикт
+}
+
+async function start() {
+  await loadBuilds();
+  if (builds.length === 0) {
+    await createBuild();
+    await loadBuilds();
+  }
+  const last = Number(localStorage.getItem("lastBuildId"));
+  const target = builds.find(b => b.id === last) || builds[0];
+  await openBuild(target.id, false);
+}
+
+async function newBuild() {
+  await createBuild();
+  await loadBuilds();
+  await openBuild(currentBuildId, false);
+}
+
+async function removeBuild() {
+  if (!confirm(`Удалить сборку №${currentBuildId}?`)) return;
+  await fetch(`${API}/${currentBuildId}`, { method: "DELETE" });
+  localStorage.removeItem("lastBuildId");
+  await loadBuilds();
+  if (builds.length === 0) {
+    await createBuild();
+    await loadBuilds();
+  }
+  await openBuild(builds[0].id, false);
+}
+
+async function switchBuild(id) {
+  await openBuild(Number(id), false);
+}
+
 document.getElementById("modal").addEventListener("click", (e) => {
   if (e.target.id === "modal") closeCatalog();
 });
 
 (async () => {
-  await createBuild();
   renderComponents();
   await loadAllData();
+  await start();
 })();
 </script>
 

@@ -1,4 +1,5 @@
-from fastapi import FastAPI, Depends, Query
+import uuid
+from fastapi import FastAPI, Depends, Query, Request, Response, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -24,6 +25,21 @@ app.add_middleware(
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+COOKIE_NAME = "session_id"
+COOKIE_MAX_AGE = 60 * 60 * 24 * 365
+
+def get_session_id(request: Request, response: Response) -> str:
+    session_id = request.cookies.get(COOKIE_NAME)
+    if not session_id:
+        session_id = uuid.uuid4().hex
+        response.set_cookie(COOKIE_NAME, session_id, max_age=COOKIE_MAX_AGE, httponly=True, samesite="lax")
+    return session_id
+
+
+def check_owner(build, session_id):
+    if build.session_id != session_id:
+        raise HTTPException(status_code=403, detail="Это чужая сборка")
+
 def get_component_list(model, session, search=None, filters=None):
     query = session.query(model)
 
@@ -45,18 +61,18 @@ def get_component_list(model, session, search=None, filters=None):
 
 
 @app.post("/", summary="Начать новую сборку 🖥️")
-def build_create(session: Session = Depends(get_db)):
-    new_build = Build()
+def build_create(session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
+    new_build = Build(session_id=session_id)
     session.add(new_build)
     session.commit()
     build_id = new_build.id
     return {"message": "Черновик сборки создан!", "id": build_id}
 
-
 @app.put("/{build_id}", summary="Изменить сборку 🖥️")
-def build_change(build_id: int, build: BuildUpdate, session: Session = Depends(get_db)):
+def build_change(build_id: int, build: BuildUpdate, session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
     change_build = session.query(Build).filter(Build.id == build_id).first()
     if change_build:
+        check_owner(change_build, session_id)
         update_data = build.dict(exclude_unset=True)
         for field, value in update_data.items():
             setattr(change_build, field, value)
@@ -80,9 +96,12 @@ def build_change(build_id: int, build: BuildUpdate, session: Session = Depends(g
 
 
 @app.delete("/{build_id}", summary="Удалить сборку 🗑️")
-def delete_build(build_id: int, session: Session = Depends(get_db)):
+def delete_build(build_id: int, session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
     build = session.query(Build).filter(Build.id == build_id).first()
     if build:
+        check_owner(build, session_id)
+        session.query(BuildRAM).filter(BuildRAM.build_id == build.id).delete()
+        session.query(BuildStorage).filter(BuildStorage.build_id == build.id).delete()
         session.delete(build)
         session.commit()
         return {"message": "Удалено! 🗑️"}
@@ -225,21 +244,47 @@ def get_coolers(
         result.append(item_dict)
     return result
 
-
 @app.get("/case_chassis", summary="Список корпусов")
-def get_cases(session: Session = Depends(get_db)):
-    return get_component_list(Case, session)
+def get_cases(
+    session: Session = Depends(get_db),
+    search: str = None,
+    form_factor: list[str] = Query(None),
+    max_gpu_length_mm: list[str] = Query(None)
+):
+    filters = {}
+    if form_factor:
+        filters["form_factor"] = form_factor
+    if max_gpu_length_mm:
+        filters["max_gpu_length_mm"] = max_gpu_length_mm
+    return get_component_list(Case, session, search=search, filters=filters)
 
 
 @app.get("/storage", summary="Список накопителей")
-def get_storages(session: Session = Depends(get_db)):
-    return get_component_list(Storage, session)
+def get_storages(
+    session: Session = Depends(get_db),
+    search: str = None,
+    type: list[str] = Query(None),
+    capacity_gb: list[str] = Query(None),
+    interface: list[str] = Query(None),
+    read_speed_mbps: list[str] = Query(None)
+):
+    filters = {}
+    if type:
+        filters["type"] = type
+    if capacity_gb:
+        filters["capacity_gb"] = capacity_gb
+    if interface:
+        filters["interface"] = interface
+    if read_speed_mbps:
+        filters["read_speed_mbps"] = read_speed_mbps
+    return get_component_list(Storage, session, search=search, filters=filters)
 
 @app.post("/{build_id}/add-ram", summary="Добавление оперативки")
-def add_ram_to_build(build_id: int, data: RAMAdd, session: Session = Depends(get_db)):
+def add_ram_to_build(build_id: int, data: RAMAdd, session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
     build = session.query(Build).filter(Build.id == build_id).first()
     if not build:
         return {"message": "Сборка не найдена"}
+    check_owner(build, session_id)
 
     new_ram_entry = BuildRAM(build_id=build_id, ram_id=data.ram_id, quantity=data.quantity)
     session.add(new_ram_entry)
@@ -247,7 +292,11 @@ def add_ram_to_build(build_id: int, data: RAMAdd, session: Session = Depends(get
     return {"message": "Оперативка добавлена в сборку", "build_ram_id": new_ram_entry.id}
 
 @app.delete("/{build_id}/remove-ram/{build_ram_id}", summary="Удаленние оперативки")
-def remove_ram_from_build(build_id: int, build_ram_id: int, session: Session = Depends(get_db)):
+def remove_ram_from_build(build_id: int, build_ram_id: int, session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
+    build = session.query(Build).filter(Build.id == build_id).first()
+    if not build:
+        return {"message": "Такой сборки нет!"}
+    check_owner(build, session_id)
     ram = session.query(BuildRAM).filter(BuildRAM.id == build_ram_id, BuildRAM.build_id == build_id).first()
     if ram:
         session.delete(ram)
@@ -257,18 +306,23 @@ def remove_ram_from_build(build_id: int, build_ram_id: int, session: Session = D
         return{"message": "Такого нет!"}
 
 @app.post("/{build_id}/add-storage", summary="Добавление памяти")
-def add_storage_to_build(build_id: int, data: StorageAdd, session: Session = Depends(get_db)):
+def add_storage_to_build(build_id: int, data: StorageAdd, session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
     build = session.query(Build).filter(Build.id == build_id).first()
     if not build:
         return {"message": "Сборка не найдена"}
+    check_owner(build, session_id)
 
     new_storage = BuildStorage(build_id=build_id, storage_id=data.storage_id)
     session.add(new_storage)
     session.commit()
-    return {"message": "Память добавлена в сборку", "new_storage": new_storage.id}
+    return {"message": "Память добавлена в сборку", "build_storage_id": new_storage.id}
 
 @app.delete("/{build_id}/remove-storage/{build_storage_id}", summary="Удаленние памяти")
-def remove_storage_from_build(build_id: int, build_storage_id: int, session: Session = Depends(get_db)):
+def remove_storage_from_build(build_id: int, build_storage_id: int, session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
+    build = session.query(Build).filter(Build.id == build_id).first()
+    if not build:
+        return {"message": "Такой сборки нет!"}
+    check_owner(build, session_id)
     storage = session.query(BuildStorage).filter(BuildStorage.id == build_storage_id, BuildStorage.build_id == build_id).first()
     if storage:
         session.delete(storage)
@@ -277,8 +331,13 @@ def remove_storage_from_build(build_id: int, build_storage_id: int, session: Ses
     else:
         return{"message": "Такого нет!"}
 
+@app.get("/builds", summary="Все сборки 🖥️")
+def get_builds(session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
+    builds = session.query(Build).filter(Build.session_id == session_id).order_by(Build.id.desc()).all()
+    return [{"id": b.id, "name_build": b.name_build} for b in builds]
+
 @app.get("/{build_id}", summary="Показать сборку 🖥️")
-def get_build(build_id: int, session: Session = Depends(get_db)):
+def get_build(build_id: int, session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
     build = session.query(Build).filter(Build.id == build_id).first()
     if not build:
         return {"message": "Такой сборки нет!"}
@@ -291,5 +350,18 @@ def get_build(build_id: int, session: Session = Depends(get_db)):
         "psu_id": build.psu_id,
         "cooler_id": build.cooler_id,
         "case_chassis_id": build.case_chassis_id,
+        "is_owner": build.session_id == session_id,
     }
+    rams = (session.query(BuildRAM.id, BuildRAM.ram_id, BuildRAM.quantity, RAM.name)
+            .join(RAM, RAM.id == BuildRAM.ram_id)
+            .filter(BuildRAM.build_id == build.id)
+            .order_by(BuildRAM.id)
+            .all())
+    storages = (session.query(BuildStorage.id, BuildStorage.storage_id, Storage.name)
+                .join(Storage, Storage.id == BuildStorage.storage_id)
+                .filter(BuildStorage.build_id == build.id)
+                .order_by(BuildStorage.id)
+                .all())
+    result["rams"] = [{"build_ram_id": r.id, "ram_id": r.ram_id, "name": r.name, "quantity": r.quantity} for r in rams]
+    result["storages"] = [{"build_storage_id": r.id, "storage_id": r.storage_id, "name": r.name} for r in storages]
     return result
