@@ -170,19 +170,25 @@ def save_soft_check(key, text, soft_details):
     if text:
         soft_details[key] = text
 
-def check_compatibility(build, session):
-    hard_checks = {}
-    hard_details = {}
-    soft_details = {}
-
+def component_data(build, session):
     cpu = session.query(CPU).filter(CPU.id == build.cpu_id).first()
     gpu = session.query(GPU).filter(GPU.id == build.gpu_id).first()
     motherboard = session.query(Motherboard).filter(Motherboard.id == build.motherboard_id).first()
     psu = session.query(PSU).filter(PSU.id == build.psu_id).first()
     cooler = session.query(Cooler).filter(Cooler.id == build.cooler_id).first()
     case = session.query(Case).filter(Case.id == build.case_chassis_id).first()
+    build_rams = get_build_rams(build, session)
+    build_storages = get_build_storages(build, session)
+
+    return cpu, gpu, motherboard, psu, cooler, case, build_rams, build_storages
 
 # ====================================================== Жесткие проверки ====================================================== #
+
+def compatibility_hard_checks(build, session, parts):
+    hard_checks = {}
+    hard_details = {}
+    
+    cpu, gpu, motherboard, psu, cooler, case, build_rams, build_storages = parts
 
     if build.cpu_id is not None: # Проверка встроенной графики у процессора
         result = (cpu_integrated_graphics_check(cpu.has_integrated_graphics, build.gpu_id is not None))
@@ -217,7 +223,6 @@ def check_compatibility(build, session):
         save_hard_check("motherboard_case_check", mb_side, hard_checks, hard_details)
         save_hard_check("case_motherboard_check", case_side, hard_checks, hard_details)
 
-    build_rams = get_build_rams(build, session)
     if len(build_rams) > 0 and build.motherboard_id is not None:
         first_ram = build_rams[0]["ram"]
         total_modules = sum(item["quantity"] for item in build_rams)
@@ -226,15 +231,20 @@ def check_compatibility(build, session):
         save_hard_check("motherboard_ram_check", mb_side, hard_checks, hard_details)
         save_hard_check("ram_slots", ram_slots(total_modules, motherboard.ram_slots), hard_checks, hard_details) # Проверка слотов RAM
 
-    build_storages = get_build_storages(build, session)
     if len(build_storages) > 0 and build.motherboard_id is not None:
         m2_count = sum(1 for s in build_storages if s.interface == "M.2")
         sata_count = sum(1 for s in build_storages if s.interface == "SATA")
         save_hard_check("storage_slots", storage_slots(m2_count, sata_count, motherboard.m2_slots, motherboard.sata_slots), hard_checks, hard_details) # Проверка слотов памяти
 
+
+    return hard_checks, hard_details
+
 # ============================================================================================================================== #
 
 # ====================================================== Мягкие проверки ======================================================= #
+def compatibility_soft_checks(build, parts):
+    soft_details = {}
+    cpu, gpu, motherboard, psu, cooler, case, build_rams, build_storages = parts
 
     if build.cpu_id is not None and build.gpu_id is not None: # Проверка баланса процессора и видеокарты между собой
         save_soft_check("balance_cpu_gpu", balance_cpu_gpu(cpu_score(cpu.benchmark_score), gpu_score(gpu.benchmark_score)), soft_details)
@@ -243,6 +253,7 @@ def check_compatibility(build, session):
         save_soft_check("balance_vram_gpu", balance_vram_gpu(gpu.vram_gb, gpu_score(gpu.benchmark_score)), soft_details)
 
     if len(build_rams) > 0:
+        total_modules = sum(item["quantity"] for item in build_rams)
         first_ram = build_rams[0]["ram"]
         total_capacity = sum(item["ram"].capacity_gb * item["quantity"] for item in build_rams)
         save_soft_check("ram_capacity", ram_capacity(total_capacity), soft_details) # Проверка количетсва оперативной памяти
@@ -254,11 +265,9 @@ def check_compatibility(build, session):
     if len(build_storages) > 0: # Проверка SSD
         save_soft_check("storage_type", storage_type([s.type for s in build_storages]), soft_details)
 
+    return soft_details 
 
 # ============================================================================================================================== #
-    
-
-    return hard_checks, hard_details, soft_details
 
 def generate_verdict(hard_details, soft_details):
     parts = []
@@ -272,3 +281,10 @@ def generate_verdict(hard_details, soft_details):
         parts.append("🏆 Отличная сборка! Все компоненты хорошо сочетаются между собой.")
 
     return " ".join(parts)
+
+
+def check_compatibility(build, session):
+    parts = component_data(build, session)
+    hard_checks, hard_details = compatibility_hard_checks(build, session, parts)
+    soft_details = compatibility_soft_checks(build, parts)
+    return hard_checks, hard_details, soft_details
