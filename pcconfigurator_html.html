@@ -35,7 +35,10 @@
   .catalog-specs { font-size: 12px; color: #666; margin-top: 6px; line-height: 1.6; }
   .catalog-specs b { color: #333; }
 
-  .builds-bar { display: flex; gap: 8px; max-width: 700px; margin: 16px auto; }
+  .builds-bar { display: flex; flex-wrap: wrap; gap: 8px; max-width: 700px; margin: 16px auto; }
+  .builds-bar .build-name { flex-basis: 100%; padding: 9px 10px; border: 1px solid #e5e5e5; border-radius: 8px; font-size: 14px; background: white; }
+  .builds-bar .build-name:focus { outline: none; border-color: #3b5bdb; }
+  .builds-bar .build-name:read-only { background: #f1f3f5; }
   .builds-bar select { flex: 1; padding: 9px 10px; border: 1px solid #e5e5e5; border-radius: 8px; background: white; font-size: 14px; }
   .builds-bar button { padding: 9px 14px; border: 1px solid #e5e5e5; border-radius: 8px; background: white; font-size: 14px; cursor: pointer; }
   .builds-bar button:hover { border-color: #3b5bdb; }
@@ -57,6 +60,8 @@
   <select id="build-select" onchange="switchBuild(this.value)"></select>
   <button onclick="newBuild()">+ Новая сборка</button>
   <button class="danger" onclick="removeBuild()">Удалить</button>
+  <input id="build-name" class="build-name" maxlength="50" placeholder="Название сборки (необязательно)"
+         onchange="renameBuild(this.value)" onkeydown="if (event.key === 'Enter') this.blur()">
 </div>
 
 <div id="components"></div>
@@ -397,6 +402,7 @@ function resetForm() {
   renderInstalledRam();
   renderInstalledStorage();
   document.getElementById("verdict").textContent = "Заполни сборку полностью, чтобы увидеть заключение";
+  document.getElementById("build-name").value = "";
 }
 
 function findItem(key, id) {
@@ -416,6 +422,10 @@ async function openBuild(id, retry = true) {
     if (retry) return start();
     return;
   }
+
+  const nameInput = document.getElementById("build-name");
+  nameInput.value = data.name_build || "";
+  nameInput.readOnly = data.is_owner === false;      // чужую сборку можно только смотреть
 
   COMPONENTS.forEach(c => {
     const item = data[c.key] != null ? findItem(c.key, data[c.key]) : null;
@@ -471,6 +481,24 @@ async function removeBuild() {
     await loadBuilds();
   }
   await openBuild(builds[0].id, false);
+}
+
+async function renameBuild(value) {
+  const name = value.trim();
+  const input = document.getElementById("build-name");
+  input.value = name;
+  const res = await fetch(`${API}/${currentBuildId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name_build: name })
+  });
+  const item = builds.find(b => b.id === currentBuildId);
+  if (!res.ok) {                                     // например, чужая сборка: возвращаем прежнее название
+    input.value = item && item.name_build ? item.name_build : "";
+    return;
+  }
+  if (item) item.name_build = name || null;
+  renderBuildSelect();
 }
 
 async function switchBuild(id) {
