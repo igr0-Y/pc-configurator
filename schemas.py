@@ -1,9 +1,9 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional
 
 
 class BuildUpdate(BaseModel):
-    name_build: Optional[str] = None
+    name_build: Optional[str] = Field(default=None, max_length=50)
     cpu_id: Optional[int] = None
     motherboard_id: Optional[int] = None
     gpu_id: Optional[int] = None
@@ -13,7 +13,7 @@ class BuildUpdate(BaseModel):
 
 class RAMAdd(BaseModel):
     ram_id: int
-    quantity: int = 1
+    quantity: int = Field(default = 1, ge=1, le=8)
 
 class StorageAdd(BaseModel):
     storage_id: int

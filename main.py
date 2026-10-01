@@ -35,7 +35,6 @@ def get_session_id(request: Request, response: Response) -> str:
         response.set_cookie(COOKIE_NAME, session_id, max_age=COOKIE_MAX_AGE, httponly=True, samesite="lax")
     return session_id
 
-
 def check_owner(build, session_id):
     if build.session_id != session_id:
         raise HTTPException(status_code=403, detail="Это чужая сборка")
@@ -74,6 +73,8 @@ def build_change(build_id: int, build: BuildUpdate, session: Session = Depends(g
     if change_build:
         check_owner(change_build, session_id)
         update_data = build.dict(exclude_unset=True)
+        if update_data.get("name_build") is not None:
+            update_data["name_build"] = update_data["name_build"].strip() or None
         for field, value in update_data.items():
             setattr(change_build, field, value)
         session.commit()
@@ -291,7 +292,7 @@ def add_ram_to_build(build_id: int, data: RAMAdd, session: Session = Depends(get
     session.commit()
     return {"message": "Оперативка добавлена в сборку", "build_ram_id": new_ram_entry.id}
 
-@app.delete("/{build_id}/remove-ram/{build_ram_id}", summary="Удаленние оперативки")
+@app.delete("/{build_id}/remove-ram/{build_ram_id}", summary="Удаление оперативки")
 def remove_ram_from_build(build_id: int, build_ram_id: int, session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
     build = session.query(Build).filter(Build.id == build_id).first()
     if not build:
@@ -305,7 +306,7 @@ def remove_ram_from_build(build_id: int, build_ram_id: int, session: Session = D
     else:
         return{"message": "Такого нет!"}
 
-@app.post("/{build_id}/add-storage", summary="Добавление памяти")
+@app.post("/{build_id}/add-storage", summary="Добавление накопителя")
 def add_storage_to_build(build_id: int, data: StorageAdd, session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
     build = session.query(Build).filter(Build.id == build_id).first()
     if not build:
@@ -317,7 +318,7 @@ def add_storage_to_build(build_id: int, data: StorageAdd, session: Session = Dep
     session.commit()
     return {"message": "Память добавлена в сборку", "build_storage_id": new_storage.id}
 
-@app.delete("/{build_id}/remove-storage/{build_storage_id}", summary="Удаленние памяти")
+@app.delete("/{build_id}/remove-storage/{build_storage_id}", summary="Удаление памяти")
 def remove_storage_from_build(build_id: int, build_storage_id: int, session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
     build = session.query(Build).filter(Build.id == build_id).first()
     if not build:
@@ -352,16 +353,8 @@ def get_build(build_id: int, session: Session = Depends(get_db), session_id: str
         "case_chassis_id": build.case_chassis_id,
         "is_owner": build.session_id == session_id,
     }
-    rams = (session.query(BuildRAM.id, BuildRAM.ram_id, BuildRAM.quantity, RAM.name)
-            .join(RAM, RAM.id == BuildRAM.ram_id)
-            .filter(BuildRAM.build_id == build.id)
-            .order_by(BuildRAM.id)
-            .all())
-    storages = (session.query(BuildStorage.id, BuildStorage.storage_id, Storage.name)
-                .join(Storage, Storage.id == BuildStorage.storage_id)
-                .filter(BuildStorage.build_id == build.id)
-                .order_by(BuildStorage.id)
-                .all())
+    rams = (session.query(BuildRAM.id, BuildRAM.ram_id, BuildRAM.quantity, RAM.name).join(RAM, RAM.id == BuildRAM.ram_id).filter(BuildRAM.build_id == build.id).order_by(BuildRAM.id).all())
+    storages = (session.query(BuildStorage.id, BuildStorage.storage_id, Storage.name).join(Storage, Storage.id == BuildStorage.storage_id).filter(BuildStorage.build_id == build.id).order_by(BuildStorage.id).all())
     result["rams"] = [{"build_ram_id": r.id, "ram_id": r.ram_id, "name": r.name, "quantity": r.quantity} for r in rams]
     result["storages"] = [{"build_storage_id": r.id, "storage_id": r.storage_id, "name": r.name} for r in storages]
     return result
