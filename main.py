@@ -1,10 +1,11 @@
+import json
 import uuid
 from fastapi import FastAPI, Depends, Query, Request, Response, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from database import get_db
-from models import CPU, GPU, RAM, Motherboard, PSU, Cooler, Case, Storage, Build, BuildRAM, BuildStorage, CoolerSocket
+from models import CPU, GPU, RAM, Motherboard, PSU, Cooler, Case, Storage, Build, BuildRAM, BuildStorage, CoolerSocket, BuildHistory
 from schemas import BuildUpdate, RAMAdd, StorageAdd
 from compatibility import check_compatibility, generate_verdict, get_build_rams, get_build_storages, get_cooler_sockets
 from sqlalchemy.orm import Session
@@ -38,6 +39,31 @@ def get_session_id(request: Request, response: Response) -> str:
 def check_owner(build, session_id):
     if build.session_id != session_id:
         raise HTTPException(status_code=403, detail="Это чужая сборка")
+
+def build_verdict_response(change_build, session, message):
+    hard_checks, hard_details, soft_details = check_compatibility(change_build, session)
+    is_fully_filled = (
+        change_build.cpu_id is not None and
+        change_build.motherboard_id is not None and
+        change_build.gpu_id is not None and
+        change_build.psu_id is not None and
+        change_build.cooler_id is not None and
+        change_build.case_chassis_id is not None and
+        len(get_build_rams(change_build, session)) > 0 and
+        len(get_build_storages(change_build, session)) > 0
+    )
+    verdict = generate_verdict(hard_details, soft_details) if is_fully_filled else None
+    can_redo = session.query(BuildHistory).filter(
+        BuildHistory.build_id == change_build.id,
+        BuildHistory.position == change_build.history_position
+    ).first() is not None
+    return {
+        "message": message,
+        "hard_checks": hard_checks,
+        "verdict": verdict,
+        "can_undo": change_build.history_position > 0,
+        "can_redo": can_redo,
+    }
 
 def get_component_list(model, session, search=None, filters=None):
     query = session.query(model)
@@ -75,25 +101,73 @@ def build_change(build_id: int, build: BuildUpdate, session: Session = Depends(g
         update_data = build.dict(exclude_unset=True)
         if update_data.get("name_build") is not None:
             update_data["name_build"] = update_data["name_build"].strip() or None
+        changes = {}
         for field, value in update_data.items():
+            old_value = getattr(change_build, field)
+            changes[field] = {"old": old_value, "new": value}
             setattr(change_build, field, value)
-        session.commit()
-        hard_checks, hard_details, soft_details = check_compatibility(change_build, session)
-        is_fully_filled = (
-            change_build.cpu_id is not None and
-            change_build.motherboard_id is not None and
-            change_build.gpu_id is not None and
-            change_build.psu_id is not None and
-            change_build.cooler_id is not None and
-            change_build.case_chassis_id is not None and
-            len(get_build_rams(change_build, session)) > 0 and
-            len(get_build_storages(change_build, session)) > 0
-        )
 
-        verdict = generate_verdict(hard_details, soft_details) if is_fully_filled else None
-        return {"message": "Изменения приняты!", "hard_checks": hard_checks, "verdict": verdict}
+        if changes:
+            session.query(BuildHistory).filter(BuildHistory.build_id == build_id, BuildHistory.position >= change_build.history_position).delete()
+
+            history_entry = BuildHistory(
+                build_id=build_id,
+                position=change_build.history_position,
+                changes=json.dumps(changes)
+            )
+            session.add(history_entry)
+            change_build.history_position += 1
+        session.commit()
+        return build_verdict_response(change_build, session, "Изменения приняты!")
     else:
         return {"message": "Такой сборки нет!"}
+
+
+@app.post("/{build_id}/undo", summary="Отменить последнее изменение ↩️")
+def undo_build(build_id: int, session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
+    change_build = session.query(Build).filter(Build.id == build_id).first()
+    if not change_build:
+        return {"message": "Такой сборки нет!"}
+    check_owner(change_build, session_id)
+
+    if change_build.history_position <= 0:
+        return build_verdict_response(change_build, session, "Нечего отменять")
+
+    step = session.query(BuildHistory).filter(
+        BuildHistory.build_id == build_id,
+        BuildHistory.position == change_build.history_position - 1
+    ).first()
+    if not step:
+        return build_verdict_response(change_build, session, "Нечего отменять")
+
+    changes = json.loads(step.changes)
+    for field, pair in changes.items():
+        setattr(change_build, field, pair["old"])
+    change_build.history_position -= 1
+    session.commit()
+    return build_verdict_response(change_build, session, "Изменение отменено ↩️")
+
+
+@app.post("/{build_id}/redo", summary="Повторить отменённое изменение ↪️")
+def redo_build(build_id: int, session: Session = Depends(get_db), session_id: str = Depends(get_session_id)):
+    change_build = session.query(Build).filter(Build.id == build_id).first()
+    if not change_build:
+        return {"message": "Такой сборки нет!"}
+    check_owner(change_build, session_id)
+
+    step = session.query(BuildHistory).filter(
+        BuildHistory.build_id == build_id,
+        BuildHistory.position == change_build.history_position
+    ).first()
+    if not step:
+        return build_verdict_response(change_build, session, "Нечего повторять")
+
+    changes = json.loads(step.changes)
+    for field, pair in changes.items():
+        setattr(change_build, field, pair["new"])
+    change_build.history_position += 1
+    session.commit()
+    return build_verdict_response(change_build, session, "Изменение повторено ↪️")
 
 
 @app.delete("/{build_id}", summary="Удалить сборку 🗑️")
@@ -352,6 +426,11 @@ def get_build(build_id: int, session: Session = Depends(get_db), session_id: str
         "cooler_id": build.cooler_id,
         "case_chassis_id": build.case_chassis_id,
         "is_owner": build.session_id == session_id,
+        "can_undo": build.history_position > 0,
+        "can_redo": session.query(BuildHistory).filter(
+            BuildHistory.build_id == build.id,
+            BuildHistory.position == build.history_position
+        ).first() is not None,
     }
     rams = (session.query(BuildRAM.id, BuildRAM.ram_id, BuildRAM.quantity, RAM.name).join(RAM, RAM.id == BuildRAM.ram_id).filter(BuildRAM.build_id == build.id).order_by(BuildRAM.id).all())
     storages = (session.query(BuildStorage.id, BuildStorage.storage_id, Storage.name).join(Storage, Storage.id == BuildStorage.storage_id).filter(BuildStorage.build_id == build.id).order_by(BuildStorage.id).all())
