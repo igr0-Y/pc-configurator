@@ -117,13 +117,6 @@ class BuildHistory(Base):
     position = Column(Integer)
     changes = Column(String)
 
-class BuildHistory(Base):
-    __tablename__ = "build_history"
-    id = Column(Integer, primary_key=True)
-    build_id = Column(Integer, ForeignKey("build.id"))
-    position = Column(Integer)
-    changes = Column(String)
-
 class Game(Base):
     __tablename__ = "game"
     id = Column(Integer, primary_key=True)
