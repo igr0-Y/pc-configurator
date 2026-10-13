@@ -5,11 +5,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from database import get_db
-from models import CPU, GPU, RAM, Motherboard, PSU, Cooler, Case, Storage, Build, BuildRAM, BuildStorage, CoolerSocket, \
-    BuildHistory, Game
+from models import CPU, GPU, RAM, Motherboard, PSU, Cooler, Case, Storage, Build, BuildRAM, BuildStorage, CoolerSocket, BuildHistory, Game
 from schemas import BuildUpdate, RAMAdd, StorageAdd
-from compatibility import check_compatibility, generate_verdict, get_build_rams, get_build_storages, get_cooler_sockets, \
-    cpu_score, game_compatibility
+from compatibility import check_compatibility, generate_verdict, get_build_rams, get_build_storages, get_cooler_sockets, cpu_score, game_compatibility
 from sqlalchemy.orm import Session
 
 app = FastAPI()
