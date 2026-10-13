@@ -108,7 +108,14 @@ class CoolerSocket(Base):
     __tablename__ = "cooler_socket"
     id = Column(Integer, primary_key=True)
     cooler_id = Column(Integer, ForeignKey("cooler.id"))
-    socket = Column(String)    
+    socket = Column(String)
+
+class BuildHistory(Base):
+    __tablename__ = "build_history"
+    id = Column(Integer, primary_key=True)
+    build_id = Column(Integer, ForeignKey("build.id"))
+    position = Column(Integer)
+    changes = Column(String)
 
 class BuildHistory(Base):
     __tablename__ = "build_history"
