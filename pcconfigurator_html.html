@@ -19,6 +19,13 @@
   .installed-item button { background: none; border: none; color: #e03131; cursor: pointer; font-size: 14px; }
   .verdict-box { background: #fff9e6; border: 1px solid #f0d060; border-radius: 10px; padding: 16px; margin-top: 20px; line-height: 1.6; white-space: pre-line; }
 
+  .games-box { background: white; border: 1px solid #e5e5e5; border-radius: 10px; padding: 16px; margin-top: 14px; }
+  .games-box h3 { margin: 0 0 10px; font-size: 15px; }
+  .games-box .games-empty { font-size: 13px; color: #888; }
+  .game-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+  .game-row:last-child { border-bottom: none; }
+  .game-percent { font-weight: 600; padding: 3px 9px; border-radius: 6px; font-size: 12px; }
+
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000; }
   .modal-overlay.open { display: flex; }
   .modal-box { background: white; border-radius: 12px; width: 90%; max-width: 600px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -102,6 +109,11 @@
 </div>
 
 <div class="verdict-box" id="verdict">Заполни сборку полностью, чтобы увидеть заключение</div>
+
+<div class="games-box">
+  <h3>🎮 Какие игры потянет сборка</h3>
+  <div id="games-list" class="games-empty">Выбери процессор и видеокарту, чтобы увидеть список игр</div>
+</div>
 
 <div class="modal-overlay" id="modal">
   <div class="modal-box">
@@ -335,6 +347,30 @@ async function refreshBuild(extraBody = {}) {
   renderBadges(data.hard_checks || {});
   document.getElementById("verdict").textContent = data.verdict || "Заполни сборку полностью, чтобы увидеть заключение";
   updateUndoRedoButtons(data.can_undo, data.can_redo);
+  await loadGames();
+}
+
+function percentColor(percent) {
+  if (percent >= 100) return "#e6f7e6";
+  if (percent >= 60) return "#fff9e6";
+  return "#ffe6e6";
+}
+
+async function loadGames() {
+  const el = document.getElementById("games-list");
+  try {
+    const res = await fetch(`${API}/preliminary_list_of_games?build_id=${currentBuildId}`);
+    if (!res.ok) throw new Error("not ready");
+    const games = await res.json();
+    el.className = "";
+    el.innerHTML = games.map(g => {
+      const percent = Math.round(g.percent);
+      return `<div class="game-row"><span>${g.name}</span><span class="game-percent" style="background:${percentColor(percent)}">${percent}%</span></div>`;
+    }).join("");
+  } catch {
+    el.className = "games-empty";
+    el.textContent = "Выбери процессор и видеокарту, чтобы увидеть список игр";
+  }
 }
 
 function updateUndoRedoButtons(canUndo, canRedo) {
