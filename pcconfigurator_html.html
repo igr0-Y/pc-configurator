@@ -19,6 +19,13 @@
   .installed-item button { background: none; border: none; color: #e03131; cursor: pointer; font-size: 14px; }
   .verdict-box { background: #fff9e6; border: 1px solid #f0d060; border-radius: 10px; padding: 16px; margin-top: 20px; line-height: 1.6; white-space: pre-line; }
 
+  .games-box { background: white; border: 1px solid #e5e5e5; border-radius: 10px; padding: 16px; margin-top: 14px; }
+  .games-box h3 { margin: 0 0 10px; font-size: 15px; }
+  .games-box .games-empty { font-size: 13px; color: #888; }
+  .game-row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+  .game-row:last-child { border-bottom: none; }
+  .game-percent { font-weight: 600; padding: 3px 9px; border-radius: 6px; font-size: 12px; }
+
   .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000; }
   .modal-overlay.open { display: flex; }
   .modal-box { background: white; border-radius: 12px; width: 90%; max-width: 600px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; }
@@ -44,17 +51,33 @@
   .builds-bar button:hover { border-color: #3b5bdb; }
   .builds-bar .danger { color: #e03131; }
   .builds-bar .danger:hover { border-color: #e03131; }
+  .builds-bar button:disabled { opacity: 0.4; cursor: default; border-color: #e5e5e5 !important; }
+
+  .header-actions { display: flex; align-items: center; gap: 8px; }
+  .edit-toolbar { display: flex; gap: 6px; }
+  .edit-toolbar button {
+    width: 36px; height: 36px; border: 1px solid #e5e5e5; border-radius: 8px; background: white;
+    font-size: 16px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .edit-toolbar button:hover:not(:disabled) { border-color: #3b5bdb; }
+  .edit-toolbar button:disabled { opacity: 0.35; cursor: default; }
 </style>
 </head>
 <body>
 
 <div style="display:flex; justify-content:space-between; align-items:center; max-width:700px; margin:0 auto;">
   <h1 style="margin-bottom:0;">🖥️ Конфигуратор ПК</h1>
-  <a href="https://github.com/igr0-Y/pc-configurator" target="_blank" rel="noopener"
-     style="display:flex; align-items:center; gap:6px; color:#333; text-decoration:none; font-size:13px; padding:8px 12px; border:1px solid #e5e5e5; border-radius:8px; background:white;">
-    <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
-    GitHub
-  </a>
+  <div class="header-actions">
+    <div class="edit-toolbar">
+      <button id="undo-btn" onclick="undoBuild()" title="Отменить (Ctrl+Z)">↩️</button>
+      <button id="redo-btn" onclick="redoBuild()" title="Повторить (Ctrl+Shift+Z)">↪️</button>
+    </div>
+    <a href="https://github.com/igr0-Y/pc-configurator" target="_blank" rel="noopener"
+       style="display:flex; align-items:center; gap:6px; color:#333; text-decoration:none; font-size:13px; padding:8px 12px; border:1px solid #e5e5e5; border-radius:8px; background:white;">
+      <svg height="18" width="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      GitHub
+    </a>
+  </div>
 </div>
 <div class="builds-bar">
   <select id="build-select" onchange="switchBuild(this.value)"></select>
@@ -86,6 +109,11 @@
 </div>
 
 <div class="verdict-box" id="verdict">Заполни сборку полностью, чтобы увидеть заключение</div>
+
+<div class="games-box">
+  <h3>🎮 Какие игры потянет сборка</h3>
+  <div id="games-list" class="games-empty">Выбери процессор и видеокарту, чтобы увидеть список игр</div>
+</div>
 
 <div class="modal-overlay" id="modal">
   <div class="modal-box">
@@ -318,6 +346,50 @@ async function refreshBuild(extraBody = {}) {
   const data = await res.json();
   renderBadges(data.hard_checks || {});
   document.getElementById("verdict").textContent = data.verdict || "Заполни сборку полностью, чтобы увидеть заключение";
+  updateUndoRedoButtons(data.can_undo, data.can_redo);
+  await loadGames();
+}
+
+function percentColor(percent) {
+  if (percent >= 100) return "#e6f7e6";
+  if (percent >= 60) return "#fff9e6";
+  return "#ffe6e6";
+}
+
+async function loadGames() {
+  const el = document.getElementById("games-list");
+  try {
+    const res = await fetch(`${API}/preliminary_list_of_games?build_id=${currentBuildId}`);
+    if (!res.ok) throw new Error("not ready");
+    const games = await res.json();
+    el.className = "";
+    el.innerHTML = games.map(g => {
+      const percent = Math.round(g.percent);
+      return `<div class="game-row"><span>${g.name}</span><span class="game-percent" style="background:${percentColor(percent)}">${percent}%</span></div>`;
+    }).join("");
+  } catch {
+    el.className = "games-empty";
+    el.textContent = "Выбери процессор и видеокарту, чтобы увидеть список игр";
+  }
+}
+
+function updateUndoRedoButtons(canUndo, canRedo) {
+  const undoBtn = document.getElementById("undo-btn");
+  const redoBtn = document.getElementById("redo-btn");
+  if (undoBtn) undoBtn.disabled = !canUndo;
+  if (redoBtn) redoBtn.disabled = !canRedo;
+}
+
+async function undoBuild() {
+  const res = await fetch(`${API}/${currentBuildId}/undo`, { method: "POST" });
+  if (!res.ok) return;
+  await openBuild(currentBuildId, false);
+}
+
+async function redoBuild() {
+  const res = await fetch(`${API}/${currentBuildId}/redo`, { method: "POST" });
+  if (!res.ok) return;
+  await openBuild(currentBuildId, false);
 }
 
 async function addRam(item) {
@@ -426,6 +498,7 @@ async function openBuild(id, retry = true) {
   const nameInput = document.getElementById("build-name");
   nameInput.value = data.name_build || "";
   nameInput.readOnly = data.is_owner === false;      // чужую сборку можно только смотреть
+  updateUndoRedoButtons(data.is_owner !== false && data.can_undo, data.is_owner !== false && data.can_redo);
 
   COMPONENTS.forEach(c => {
     const item = data[c.key] != null ? findItem(c.key, data[c.key]) : null;
@@ -507,6 +580,20 @@ async function switchBuild(id) {
 
 document.getElementById("modal").addEventListener("click", (e) => {
   if (e.target.id === "modal") closeCatalog();
+});
+
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea") return;   // не мешаем обычному undo в текстовых полях
+
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") {
+    e.preventDefault();
+    if (e.shiftKey) {
+      redoBuild();
+    } else {
+      undoBuild();
+    }
+  }
 });
 
 (async () => {

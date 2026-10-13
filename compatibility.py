@@ -89,6 +89,12 @@ def gpu_score(gpu_score): # Процент мощности видеокарты
     gpu_percent = gpu_score / GPU_MAX_SCORE * 100
     return gpu_percent
 
+def game_compatibility(cpu_score, gpu_score, cpu_benchmark, gpu_benchmark):
+    cpu_percent = cpu_score / cpu_benchmark * 100
+    gpu_percent = gpu_score / gpu_benchmark * 100
+    overall_percent = min(cpu_percent, gpu_percent, 100)
+    return overall_percent
+
 def balance_cpu_gpu(cpu_percent, gpu_percent): # Проверка баланса процессора и видеокарты между собой
     difference = abs(cpu_percent - gpu_percent)
     if 0 <= difference <= 15:

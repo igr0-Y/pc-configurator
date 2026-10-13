@@ -88,6 +88,7 @@ class Build(Base):
     psu_id = Column(Integer, ForeignKey("psu.id"))
     cooler_id = Column(Integer, ForeignKey("cooler.id"))
     case_chassis_id = Column(Integer, ForeignKey("case_chassis.id"))
+    history_position = Column(Integer, default=0)
 
 class BuildRAM(Base):
     __tablename__ = "build_ram"
@@ -109,3 +110,17 @@ class CoolerSocket(Base):
     cooler_id = Column(Integer, ForeignKey("cooler.id"))
     socket = Column(String)    
 
+class BuildHistory(Base):
+    __tablename__ = "build_history"
+    id = Column(Integer, primary_key=True)
+    build_id = Column(Integer, ForeignKey("build.id"))
+    position = Column(Integer)
+    changes = Column(String)
+
+class Game(Base):
+    __tablename__ = "game"
+    id = Column(Integer, primary_key=True)
+    name = Column(String)
+    gpu_benchmark = Column(Integer)
+    cpu_benchmark = Column(Integer)
+    

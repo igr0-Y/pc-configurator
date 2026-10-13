@@ -10,6 +10,7 @@ class BuildUpdate(BaseModel):
     psu_id: Optional[int] = None
     cooler_id: Optional[int] = None
     case_chassis_id: Optional[int] = None
+    
 
 class RAMAdd(BaseModel):
     ram_id: int
